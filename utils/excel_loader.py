@@ -24,7 +24,11 @@ def load_fantasy_sheet(file_path: str) -> list[dict]:
         # Get the names of the next two columns
         last_tournament1_col = df.columns[median_col_index + 1]
         last_tournament2_col = df.columns[median_col_index + 2]
-        
+        # Calculate average of last 2 tournaments
+        df['lastTournament1'] = df[last_tournament1_col]
+        df['lastTournament2'] = df[last_tournament2_col]
+        df['averageLast2'] = df[['lastTournament1', 'lastTournament2']].mean(axis=1)
+
         # Map Excel columns to our model fields
         column_mapping = {
             'fantasy_top_hero_page': 'fantasy_top_hero_page',
@@ -34,22 +38,13 @@ def load_fantasy_sheet(file_path: str) -> list[dict]:
             'handle': 'handle',
             'new_hero_yn': 'new_hero_yn',
             'median_(last_4)': 'medianLast4',
-            last_tournament1_col: 'lastTournament1',  # Dynamically mapped column
-            last_tournament2_col: 'lastTournament2',  # Dynamically mapped column
             'floor': 'floorLegendary',
             'floor_1': 'floorEpic',
             'floor_2': 'floorRare',
             'floor_3': 'floorCommon',
             '⭐stars': 'stars'
         }
-        
-        # Rename columns based on mapping
-        df = df.rename(columns=column_mapping)
-        logger.info(f"Columns after mapping: {df.columns.tolist()}")
-        
-        # Calculate average of last 2 tournaments
-        df['averageLast2'] = df[['lastTournament1', 'lastTournament2']].mean(axis=1)
-        
+        df.rename(columns=column_mapping, inplace=True)
         # Select only the columns we want to use
         relevant_columns = [
             "fantasy_top_hero_page",
@@ -68,45 +63,70 @@ def load_fantasy_sheet(file_path: str) -> list[dict]:
             "stars"
         ]
         
-        # Filter only existing columns
-        existing_columns = [col for col in relevant_columns if col in df.columns]
-        logger.info(f"Found relevant columns: {existing_columns}")
+        # Process date columns
+        date_columns = {}
+        current_date = datetime.now()
+        current_year = current_date.year
         
-        if not existing_columns:
-            logger.error("No relevant columns found in Excel file")
-            logger.error(f"Available columns: {df.columns.tolist()}")
-            return []
-            
-        if 'name' not in existing_columns:
-            logger.error("Required column 'name' not found in Excel file")
-            return []
-            
-        df = df[existing_columns]
+        # Get all columns after "Median last 4"
+        score_columns = df.columns[median_col_index + 1:]
         
-        # Convert numeric columns to strings
-        string_columns = ['hero_id', 'new_hero_yn']
-        for col in string_columns:
-            if col in df.columns:
-                df[col] = df[col].astype(str)
-        
-        # Reset index after dropping the first row
-        df = df.reset_index(drop=True)
-        
+        for col in score_columns:
+            if col in column_mapping:
+                continue
+            try:
+                # Convert column name to string first
+                col_str = str(col)
+                # Try parsing various date formats
+                for date_format in ['%Y-%m-%d', '%m/%d/%Y', '%d/%m/%Y', '%Y/%m/%d', '%m-%d']:
+                    try:
+                        if date_format == '%m-%d':
+                            # For month-day format, parse it and add appropriate year
+                            parsed_date = datetime.strptime(col_str, date_format)
+                            # First try current year
+                            date = parsed_date.replace(year=current_year)
+                            # If the resulting date would be in the future, use last year
+                            if date > current_date:
+                                date = parsed_date.replace(year=current_year - 1)
+                        else:
+                            date = pd.to_datetime(col_str, format=date_format)
+                        
+                        date_str = date.strftime('%Y-%m-%d')
+                        date_columns[col] = date_str
+                        logger.info(f"Date column found: {col} -> {date_str}")
+                        break
+                    except ValueError:
+                        continue
+            except:
+                continue
+
+        logger.info(f"Found date columns: {date_columns}")
+        logger.info(f"Relevant columns: {relevant_columns}")
         # Convert to list of dictionaries
-        records = df.to_dict('records')
-        logger.info(f"Converted {len(records)} records to dictionaries")
+        records = []
+        for _, row in df.iterrows():
+            record = {}
+            # Add regular fields
+            for col in relevant_columns:
+                if col in df.columns and pd.notna(row[col]):
+                    record[col] = row[col]
+            
+            # Add historical scores
+            historical_scores = {}
+            for orig_col, date_str in date_columns.items():
+                if orig_col in df.columns and pd.notna(row[orig_col]):
+                    historical_scores[date_str] = float(row[orig_col])
+            
+            if historical_scores:
+                record['historical_scores'] = historical_scores
+            
+            if 'name' in record:  # Only add records with a name
+                records.append(record)
         
-        # Clean and validate data
-        cleaned_records = []
-        for record in records:
-            # Remove any NaN values
-            cleaned_record = {k: v for k, v in record.items() if pd.notna(v)}
-            if 'name' in cleaned_record:
-                cleaned_records.append(cleaned_record)
+        logger.info(f"Final records count: {len(records)}")
+        logger.info(f"Sample record historical_scores: {records[0].get('historical_scores') if records else None}")
         
-        logger.info(f"Final cleaned records count: {len(cleaned_records)}")
-        
-        return cleaned_records
+        return records
         
     except Exception as e:
         logger.error(f"Error loading Excel file: {str(e)}")

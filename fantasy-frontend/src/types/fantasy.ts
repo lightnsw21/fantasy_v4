@@ -6,6 +6,16 @@ export interface FantasySheet {
     flags?: string;
     new_hero_yn?: number;
     created_at: string;
+    medianLast4?: number;
+    lastTournament1?: number;
+    lastTournament2?: number;
+    averageLast2?: number;
+    floorCommon?: number;
+    floorRare?: number;
+    floorEpic?: number;
+    floorLegendary?: number;
+    stars?: number;
+    historical_scores?: { [date: string]: number };
 }
 
 export interface Card {
@@ -19,6 +29,7 @@ export interface Card {
     role?: string;
     team?: string;
     price?: number;
+    floorPrice?: number;
     totalGames?: number;
     naturalRarity?: string;
     adjustedScore?: number;
@@ -33,11 +44,17 @@ export interface Card {
 
 export interface PlayerCard {
     _id: string;
-    hero_id: number;
+    hero_id: string;
     name: string;
     picture: string;
     handle?: string;
-    hero_rarity_index?: string | number;
+    hero_rarity_index: number;
+    count: number;
+    stars: number;
+    medianLast4?: number;
+    lastTournament1?: number;
+    lastTournament2?: number;
+    averageLast2?: number;
 }
 
 export interface DeckForm {

@@ -11,15 +11,23 @@ interface DeckForm {
   noLimitMode: boolean;
   numDecks: number;
   reverseMode: boolean;
+  priceLimit: number | null;
+  timeLimit: number; // Time limit in seconds
+}
+
+interface DeckPickerParams {
+  deckForms: DeckForm[];
+  useAllCards: boolean;
+  useCardsWithOffer: boolean;
 }
 
 interface DeckPickerProps {
-  onSubmit: (params: {
-    deckForms: DeckForm[];
-  }) => void;
+  onSubmit: (params: DeckPickerParams) => void;
 }
 
 export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
+  const [useAllCards, setUseAllCards] = useState(false);
+  const [useCardsWithOffer, setUseCardsWithOffer] = useState(false);
   const [deckForms, setDeckForms] = useState<DeckForm[]>([{
     numEpics: 0,
     numRares: 0,
@@ -28,6 +36,8 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
     noLimitMode: false,
     numDecks: 1,
     reverseMode: false,
+    priceLimit: null,
+    timeLimit: 30, // Default 30 seconds
   }]);
 
   const addForm = () => {
@@ -39,6 +49,8 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
       noLimitMode: false,
       numDecks: 1,
       reverseMode: false,
+      priceLimit: null,
+      timeLimit: 30, // Default 30 seconds
     }]);
   };
 
@@ -59,6 +71,8 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
     e.preventDefault();
     onSubmit({
       deckForms,
+      useAllCards,
+      useCardsWithOffer
     });
   };
 
@@ -72,6 +86,21 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
           </ActionIcon>
         )}
       </Group>
+
+      <div className="form-group">
+        <label>Price Limit (ETH):</label>
+        <input
+          type="number"
+          value={form.priceLimit || ''}
+          onChange={(e) => {
+            const value = e.target.value ? parseFloat(e.target.value) : null;
+            updateForm(index, { priceLimit: value });
+          }}
+          min="0"
+          step="0.01"
+          placeholder="No limit"
+        />
+      </div>
 
       <div className="form-group checkbox-group">
         <Checkbox
@@ -147,6 +176,18 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
       </div>
 
       <div className="form-group">
+        <label>Time Limit per Deck (seconds):</label>
+        <input
+          type="number"
+          value={form.timeLimit}
+          onChange={(e) => updateForm(index, { timeLimit: parseInt(e.target.value) || 30 })}
+          min="1"
+          max="300"
+          placeholder="30"
+        />
+      </div>
+
+      <div className="form-group">
         <Switch
           label="Reverse Mode (Pick Lowest Scores)"
           checked={form.reverseMode}
@@ -159,6 +200,22 @@ export const DeckPicker: React.FC<DeckPickerProps> = ({ onSubmit }) => {
   return (
     <Paper p="md">
       <form onSubmit={handleSubmit} className="deck-picker">
+        <Group mb="md">
+          <Checkbox
+            label="Use All Available Cards"
+            checked={useAllCards}
+            onChange={(e) => setUseAllCards(e.currentTarget.checked)}
+          />
+          
+          {useAllCards && (
+            <Switch
+              label="Use Cards With Offer Only"
+              checked={useCardsWithOffer}
+              onChange={(e) => setUseCardsWithOffer(e.currentTarget.checked)}
+            />
+          )}
+        </Group>
+        
         {deckForms.map((form, index) => renderForm(form, index))}
         
         <Button 

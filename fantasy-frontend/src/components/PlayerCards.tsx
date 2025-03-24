@@ -8,7 +8,7 @@ interface PlayerCard {
     hero_rarity_index: number;
     count: number;
     picture: string;
-    handle: string;
+    handle?: string;
     name: string;
     stars: number;
     medianLast4?: number;
@@ -174,11 +174,12 @@ export const PlayerCards: React.FC<PlayerCardsProps> = ({ cards, setCards }) => 
             <SimpleGrid 
                 cols={4} 
                 spacing="lg" 
-                breakpoints={{
-                    md: { cols: 3, spacing: 'md' },
-                    sm: { cols: 2, spacing: 'sm' },
-                    xs: { cols: 1, spacing: 'sm' }
-                }}
+                verticalSpacing="lg"
+                breakpoints={[
+                    { maxWidth: 'md', cols: 3, spacing: 'md', verticalSpacing: 'md' },
+                    { maxWidth: 'sm', cols: 2, spacing: 'sm', verticalSpacing: 'sm' },
+                    { maxWidth: 'xs', cols: 1, spacing: 'sm', verticalSpacing: 'sm' }
+                ]}
             >
                 {cards.map((card) => {
                     const rarity = parseRarity(card.hero_rarity_index);

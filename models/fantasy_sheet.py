@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Dict
 from datetime import datetime
 import numpy as np
 
@@ -20,6 +20,7 @@ class FantasySheet(BaseModel):
     floorEpic: Optional[float] = None
     floorLegendary: Optional[float] = None
     stars: Optional[float] = None
+    historical_scores: Dict[str, float] = Field(default_factory=dict)  # Store additional historical scores by date
 
     class Config:
         from_attributes = True

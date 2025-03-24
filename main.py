@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from database.mongodb import db
 from utils.excel_loader import load_fantasy_sheet
 from models.fantasy_sheet import FantasySheet
-from typing import List
+from typing import List, Optional
 import logging
 import sys
 import os
 from pathlib import Path
 import json
+from datetime import datetime
 
 # Add the project root directory to Python path
 project_root = Path(__file__).parent
@@ -74,15 +75,25 @@ async def root():
     """
 
 @app.post("/import-sheet")
-async def import_sheet():
+async def import_sheet(file: UploadFile = File(...)):
     try:
         logger.info("Starting to load Excel file...")
-        records = load_fantasy_sheet("raw_data/FantasySheets.xlsx")
-        logger.info(f"Loaded {len(records)} records from Excel")
+        
+        # Create a temporary file to store the uploaded Excel
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as temp_file:
+            content = await file.read()
+            temp_file.write(content)
+            temp_file.flush()
+            
+            # Load records from the temporary file
+            records = load_fantasy_sheet(temp_file.name)
+            logger.info(f"Loaded {len(records)} records from Excel")
+            
+            # Clean up the temporary file
+            os.unlink(temp_file.name)
         
         if not records:
             raise HTTPException(status_code=400, detail="No records found in Excel file")
-        logger.info(f"Records: {records}")
         
         # Drop the collection to avoid duplicates
         await db.client['fantasy_db']['fantasy_sheets'].drop()
@@ -138,6 +149,75 @@ async def get_card_by_hero_id(hero_id: str):
         logger.error(f"Error fetching card by hero_id: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/refresh-player-cards")
+async def refresh_player_cards():
+    try:
+        logger.info("Refreshing player cards from last HAR file")
+        collection = db.client['fantasy_db']['player_cards']
+        
+        # Get the last HAR file data
+        har_collection = db.client['fantasy_db']['har_files']
+        last_har = await har_collection.find_one(
+            sort=[('created_at', -1)]
+        )
+        
+        if not last_har:
+            raise HTTPException(
+                status_code=400,
+                detail="No HAR file found. Please upload a HAR file first."
+            )
+            
+        # Process the HAR file data
+        har_data = last_har['data']
+        player_cards = get_player_cards_data(har_data)
+        
+        if not player_cards:
+            raise HTTPException(
+                status_code=400,
+                detail="No player cards found in the last HAR file"
+            )
+            
+        # Format cards with required fields
+        formatted_cards = []
+        for card in player_cards:
+            formatted_card = {
+                **card,
+                'stars': card.get('stars', 1),  # Default to 1 star if not present
+                'medianLast4': card.get('medianLast4', 0)  # Default to 0 if not present
+            }
+            formatted_cards.append(formatted_card)
+        
+        # Clear existing cards
+        await collection.delete_many({})
+        
+        # Insert new cards
+        insert_result = await collection.insert_many(formatted_cards)
+        
+        # Get the inserted documents with their IDs
+        inserted_docs = await collection.find(
+            {'_id': {'$in': insert_result.inserted_ids}}
+        ).to_list(None)
+        
+        # Convert ObjectIds to strings in the response
+        formatted_docs = [{
+            **doc,
+            '_id': str(doc['_id'])
+        } for doc in inserted_docs]
+        
+        return {
+            "success": True,
+            "message": f"Successfully refreshed {len(formatted_docs)} cards",
+            "data": {
+                "player_cards": formatted_docs
+            }
+        }
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error refreshing player cards: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/process-har")
 async def process_har_upload(file: UploadFile = File(...)):
     try:
@@ -149,6 +229,13 @@ async def process_har_upload(file: UploadFile = File(...)):
             
             # Process the HAR file
             har_data = process_har_file(temp_file.name)
+            
+            # Store HAR data in MongoDB
+            har_collection = db.client['fantasy_db']['har_files']
+            await har_collection.insert_one({
+                'data': har_data,
+                'created_at': datetime.utcnow()
+            })
             
             # Get player cards data
             player_cards = get_player_cards_data(har_data)
@@ -259,4 +346,38 @@ async def get_player_cards():
         
     except Exception as e:
         logger.error(f"Error fetching player cards: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/investment-suggestions")
+async def get_investment_suggestions(
+    max_price: Optional[float] = Query(None, description="Maximum floor price to consider"),
+    min_historical_games: Optional[int] = Query(3, description="Minimum number of historical games required"),
+    rarity: Optional[str] = Query(None, description="Filter by rarity (Legendary, Epic, Rare, Common)"),
+    limit: Optional[int] = Query(10, description="Number of suggestions to return")
+):
+    try:
+        logger.info(f"Fetching investment suggestions with parameters: max_price={max_price}, min_historical_games={min_historical_games}, rarity={rarity}, limit={limit}")
+        
+        # Validate rarity if provided
+        if rarity and rarity not in ["Legendary", "Epic", "Rare", "Common"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid rarity. Must be one of: Legendary, Epic, Rare, Common"
+            )
+        
+        suggestions = await db.get_investment_suggestions(
+            max_price=max_price,
+            min_historical_games=min_historical_games,
+            rarity=rarity,
+            limit=limit
+        )
+        
+        return {
+            "success": True,
+            "count": len(suggestions),
+            "suggestions": suggestions
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting investment suggestions: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
